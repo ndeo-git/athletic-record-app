@@ -391,7 +391,7 @@ function makeLessonPdf({ student, coach, date, lessonType, reportMd, entryNo }) 
 }
 
 /* ------------------------------------------------------ app state/UI */
-const state = { coach: null, tab: "lesson", rec: null, recLive: false, finalText: "",
+const state = { coach: null, tab: "lesson", rec: null, recLive: false, userStopped: false, finalText: "",
   draft: null, openEntryId: "" };
 const $ = id => document.getElementById(id);
 const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -721,15 +721,15 @@ function bindLesson() {
   };
 
   const recBtn = $("recBtn");
-  if (recBtn) recBtn.onclick = () => {
+  // Browser speech engines stop themselves after ~60s or a long pause.
+  // We restart automatically until the coach taps stop, so a pause to
+  // think never looks like the app quitting on them.
+  const startListening = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (state.recLive) { state.rec.stop(); return; }
     const rec = new SR();
     rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
-    // Snapshot whatever is already typed; each speech event rebuilds the
-    // rest from the FULL results list. Android re-reports the whole
-    // session on every event, so appending duplicates text — rebuilding
-    // from scratch is correct on both Android and desktop.
+    // Snapshot what's already there; each event rebuilds from the FULL
+    // results list (Android re-reports the whole session every event).
     const base = $("transcript").value ? $("transcript").value.trim() + " " : "";
     rec.onresult = (ev) => {
       let fin = "", interim = "";
@@ -741,11 +741,28 @@ function bindLesson() {
       state.finalText = base + fin + interim;
       $("transcript").value = state.finalText;
     };
-    rec.onend = () => { state.recLive = false; recBtn.classList.remove("live"); recBtn.textContent = "🎙 Tap to speak"; state.finalText = $("transcript").value; };
-    rec.onerror = (ev) => { $("genErr").textContent = ev.error === "not-allowed" ? "Microphone permission denied — allow it in your browser settings, or type instead." : "Voice capture hiccup (" + ev.error + ") — your text is safe, tap to resume or type."; };
+    rec.onend = () => {
+      state.finalText = $("transcript").value;
+      if (state.recLive && !state.userStopped) { try { startListening(); return; } catch (e) { /* fall through */ } }
+      state.recLive = false;
+      recBtn.classList.remove("live"); recBtn.textContent = "\ud83c\udf99 Tap to speak";
+    };
+    rec.onerror = (ev) => {
+      if (ev.error === "no-speech" || ev.error === "aborted") return; // engine will fire onend; we restart
+      state.userStopped = true;
+      $("genErr").textContent = ev.error === "not-allowed"
+        ? "Microphone permission denied - allow it in your browser settings, or type instead."
+        : "Voice capture hiccup (" + ev.error + ") - your text is safe, tap to resume or type.";
+    };
     rec.start();
-    state.rec = rec; state.recLive = true;
-    recBtn.classList.add("live"); recBtn.textContent = "⏹ Listening — tap to stop";
+    state.rec = rec;
+  };
+  if (recBtn) recBtn.onclick = () => {
+    if (state.recLive) { state.userStopped = true; state.rec.stop(); return; }
+    state.userStopped = false; state.recLive = true;
+    recBtn.classList.add("live"); recBtn.textContent = "\u23f9 Listening - tap to stop";
+    try { startListening(); }
+    catch (e) { state.recLive = false; recBtn.classList.remove("live"); recBtn.textContent = "\ud83c\udf99 Tap to speak"; $("genErr").textContent = "Couldn't start the microphone - type instead."; }
   };
 
   $("genBtn").onclick = async () => {
