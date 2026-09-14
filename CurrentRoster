@@ -15,7 +15,7 @@
   {
     "id": "Roberto",
     "name": "Roberto",
-    "passcode": "Santiago",
+    "passcode": "santiago",
     "style": "upbeat, encouraging",
     "students": [
       { "id": "rajasvi", "name": "Rajasvi", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
@@ -43,7 +43,7 @@
   {
     "id": "alessandro",
     "name": "Alessandro",
-    "passcode": "forehand42",
+    "passcode": "jmac2026",
     "style": "upbeat, encouraging",
     "students": [
       { "id": "rajasvi", "name": "Rajasvi", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
