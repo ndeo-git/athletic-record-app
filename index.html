@@ -367,7 +367,16 @@ function makeLessonPdf({ student, coach, date, lessonType, reportMd, entryNo }) 
     doc.lines(lines, MG + 14, y + 32, "TIMESI", 12.5, C.ink, 16);
     y += h + 16;
   }
-  if (hwNext || hwLast) {
+  if (hwNext && !hwLast) {
+    // Group/clinic reports have no per-kid homework ledger history - draw
+    // a single full-width homework box instead of the two-column ledger.
+    const lines = wrapText(hwNext.body, "HELV", 10, width - 28);
+    const h = 30 + lines.length * 14 + 14;
+    doc.rect(MG, y, width, h, "FD", C.tint, C.green, 0.9);
+    doc.text("HOMEWORK BEFORE OUR NEXT LESSON", MG + 14, y + 18, "COURB", 8.5, C.green);
+    doc.lines(lines, MG + 14, y + 34, "HELV", 10, C.ink, 14);
+    y += h + 20;
+  } else if (hwNext || hwLast) {
     const colW = width / 2 - 28;
     const leftLines = hwNext ? wrapText(hwNext.body, "HELV", 10, colW) : [];
     let stamp = "", note = "";
@@ -398,7 +407,8 @@ function makeLessonPdf({ student, coach, date, lessonType, reportMd, entryNo }) 
 
 /* ------------------------------------------------------ app state/UI */
 const state = { coach: null, tab: "lesson", rec: null, recLive: false, userStopped: false, finalText: "",
-  draft: null, openEntryId: "" };
+  lessonType: "private", date: new Date().toISOString().slice(0, 10), att: {}, groupSel: "",
+  draft: null, gdraft: null, cdraft: null, openEntryId: "" };
 const $ = id => document.getElementById(id);
 const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -457,48 +467,91 @@ function appHtml() {
 }
 
 /* ------------------------------------------------------ new lesson */
+function attendeeList() {
+  const c = state.coach;
+  const allOn = c.students.every(st => state.att[st.id]);
+  const groups = c.groups || [];
+  return `
+    ${groups.length ? `
+    <label class="f">GROUP (pre-ticks its members - adjust below for absences)</label>
+    <select id="groupSel">
+      <option value="">Pick manually...</option>
+      ${groups.map(g => `<option value="${g.id}" ${state.groupSel === g.id ? "selected" : ""}>${esc(g.name)}</option>`).join("")}
+    </select>` : ""}
+    <label class="f">WHO WAS THERE</label>
+    <div style="background:#fff;border:1px solid var(--rule);border-radius:2px;padding:8px 10px">
+      <label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--rule);font-weight:600">
+        <input type="checkbox" id="attAll" ${allOn ? "checked" : ""} style="width:auto"> All
+      </label>
+      ${c.students.map(st => `
+        <label style="display:flex;align-items:center;gap:8px;padding:5px 0">
+          <input type="checkbox" class="attBox" data-sid="${st.id}" ${state.att[st.id] ? "checked" : ""} style="width:auto">
+          ${esc(st.name)} <span style="color:var(--muted);font-size:12px">${esc(st.sport)}</span>
+        </label>`).join("")}
+    </div>`;
+}
+function attendees() { return state.coach.students.filter(st => state.att[st.id]); }
+
 function lessonHtml() {
   const c = state.coach;
-  const d = state.draft;
+  const lt = state.lessonType;
   const speechOk = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  const memoHints = {
+    private: "Talk like you'd leave a voicemail: what you worked on, what improved, anything memorable, homework.",
+    group: "Talk about the session once: what the group worked on, then anything you noticed about individual kids by name, and the homework. You'll review each kid's part before any report is written.",
+    clinic: "Describe what the clinic covered in general - drills, themes, energy. No need to mention individual kids; one shared report goes to every family.",
+  };
   return `
   <div class="card">
     <div class="grid2">
       <div>
-        <label class="f">STUDENT</label>
-        <select id="student">
-          <option value="">Choose...</option>
-          ${c.students.map(s => `<option value="${s.id}">${esc(s.name)} — ${esc(s.sport)}</option>`).join("")}
+        <label class="f">LESSON TYPE</label>
+        <select id="lessonType">
+          <option value="private" ${lt === "private" ? "selected" : ""}>Private</option>
+          <option value="group" ${lt === "group" ? "selected" : ""}>Group</option>
+          <option value="clinic" ${lt === "clinic" ? "selected" : ""}>Clinic</option>
         </select>
       </div>
       <div>
-        <label class="f">LESSON TYPE</label>
-        <select id="lessonType"><option value="private">Private</option><option value="group">Group</option></select>
+        <label class="f">LESSON DATE</label>
+        <input id="date" type="date" value="${esc(state.date)}">
       </div>
     </div>
-    <label class="f">LESSON DATE</label>
-    <input id="date" type="date" value="${new Date().toISOString().slice(0, 10)}">
-    <label class="f">YOUR LAST HOMEWORK FOR THIS STUDENT (auto-filled, editable)</label>
-    <input id="lastHw" placeholder="none / first lesson">
+    ${lt === "private" ? `
+      <label class="f">STUDENT</label>
+      <select id="student">
+        <option value="">Choose...</option>
+        ${c.students.map(st => `<option value="${st.id}">${esc(st.name)} - ${esc(st.sport)}</option>`).join("")}
+      </select>
+      <label class="f">YOUR LAST HOMEWORK FOR THIS STUDENT (auto-filled, editable)</label>
+      <input id="lastHw" placeholder="none / first lesson">
+    ` : attendeeList()}
   </div>
 
   <div class="card">
     <label class="f">VOICE MEMO</label>
     ${speechOk
-      ? `<button class="recbtn" id="recBtn">🎙 Tap to speak</button>
-         <div class="hint">Talk like you'd leave a voicemail: what you worked on, what improved, anything memorable, homework. Tap again to stop. You can edit every word below.</div>`
-      : `<div class="warnbox">Voice capture isn't available in this browser — use Chrome (Android) or Safari (iPhone), or just type/paste below.</div>`}
+      ? `<button class="recbtn" id="recBtn">\ud83c\udf99 Tap to speak</button>
+         <div class="hint">${memoHints[lt]} Tap again to stop. You can edit every word below.</div>`
+      : `<div class="warnbox">Voice capture isn't available in this browser - use Chrome (Android) or Safari (iPhone), or just type/paste below.</div>`}
     <label class="f">TRANSCRIPT (edit freely before generating)</label>
     <textarea id="transcript" placeholder="Your words appear here as you speak...">${esc(state.finalText)}</textarea>
-    <div class="row"><button class="b" id="genBtn">Generate report</button></div>
+    <div class="row"><button class="b" id="genBtn">${lt === "private" ? "Generate report" : lt === "group" ? "Extract group notes" : "Generate clinic report"}</button></div>
     <div class="err" id="genErr"></div>
   </div>
 
-  ${d ? `
+  ${lt === "private" && state.draft ? privateDraftHtml() : ""}
+  ${lt === "group" && state.gdraft ? groupDraftHtml() : ""}
+  ${lt === "clinic" && state.cdraft ? clinicDraftHtml() : ""}`;
+}
+
+function privateDraftHtml() {
+  const d = state.draft;
+  return `
   <div class="card reportbox">
     <div class="rephead">
       <span class="serif" style="font-size:17px">${esc(d.student.name)}'s lesson</span>
-      <span class="mono" style="font-size:10px;color:var(--muted)">${esc(d.date)} · ${esc(d.student.sport.toUpperCase())}</span>
+      <span class="mono" style="font-size:10px;color:var(--muted)">${esc(d.date)} \u00b7 ${esc(d.student.sport.toUpperCase())}</span>
     </div>
     <textarea id="reportText" style="min-height:220px;border:none;background:transparent">${esc(d.report)}</textarea>
   </div>
@@ -507,14 +560,189 @@ function lessonHtml() {
     <label class="f">HOMEWORK (feeds your thread with ${esc(d.student.name)} next time)</label>
     <input id="hwOut" value="${esc(d.homework)}">
     <div class="row">
-      <button class="b red" id="saveBtn">Save to record</button>
+      <button class="b red" id="saveBtn">${d.savedId ? "Saved to record" : "Save to record"}</button>
       <button class="b" id="sendBtn">Send to parents (PDF attached)</button>
       <button class="b ink" id="pdfBtn">Download PDF</button>
       <button class="b mut" id="emailBtn">Open mail app instead</button>
     </div>
-    <div class="hint">Save first, then send. "Send to parents" emails the report with the branded PDF attached in one tap - no mail app needed. The mail-app button is the manual fallback.</div>
+    <div class="hint">"Send to parents" saves the entry to your record automatically and emails the report with the branded PDF attached - one tap, no mail app.</div>
     <div class="ok" id="doneMsg" style="display:none"></div>
-  </div>` : ""}`;
+  </div>`;
+}
+
+function groupDraftHtml() {
+  const g = state.gdraft;
+  if (g.stage === "notes") return `
+  <div class="card reportbox">
+    <div class="rephead"><span class="serif" style="font-size:17px">Review before reports are written</span>
+      <span class="mono" style="font-size:10px;color:var(--muted)">STEP 2 OF 3</span></div>
+    <p class="hint" style="margin-top:0">Nothing below goes to a family yet. Check that each child's box contains only things about <b>that child</b> - fix anything misattributed, add what the AI missed, or leave a box empty for a general-only report. Reports are written from these boxes and nothing else.</p>
+    <label class="f">WHAT THE WHOLE GROUP WORKED ON (goes into every report)</label>
+    <textarea id="gCommon" style="min-height:90px">${esc(g.common)}</textarea>
+    <label class="f">HOMEWORK FOR THE GROUP</label>
+    <input id="gHw" value="${esc(g.homework)}">
+    ${g.order.map(sid => {
+      const st = state.coach.students.find(x => x.id === sid);
+      const t = g.notes[sid] || "";
+      const empty = !t.trim();
+      return `
+      <label class="f" style="color:${empty ? "var(--red)" : "var(--muted)"}">${esc(st.name.toUpperCase())}${empty ? " - NOT MENTIONED (report will be general-only unless you add something)" : ""}</label>
+      <textarea class="gNote" data-sid="${sid}" style="min-height:64px" placeholder="Nothing specific about ${esc(st.name)} - leave empty or add your own note">${esc(t)}</textarea>`;
+    }).join("")}
+    ${g.flags && g.flags.toLowerCase() !== "none" ? `<div class="warnbox" style="margin-top:10px"><span class="mono" style="font-size:10px;color:var(--red)">FLAGS</span><div class="prewrap">${esc(g.flags)}</div></div>` : ""}
+    <div class="row">
+      <button class="b" id="gGenBtn">Confirm notes \u2192 write ${g.order.length} report(s)</button>
+      <button class="b mut" id="gBackBtn">Start over</button>
+    </div>
+    <div class="err" id="gErr"></div>
+  </div>`;
+  // stage === "reports"
+  return `
+  <div class="card" style="border-top:4px solid var(--green)">
+    <div class="rephead"><span class="serif" style="font-size:17px">Individual reports - review each, then send</span>
+      <span class="mono" style="font-size:10px;color:var(--muted)">STEP 3 OF 3</span></div>
+    <div class="row" style="margin-top:0">
+      <button class="b" id="gSendAll">Send all ${g.order.length} (PDFs attached)</button>
+      <button class="b mut" id="gBackBtn">Back to notes</button>
+    </div>
+    <div class="ok" id="gDone" style="display:none"></div>
+  </div>
+  ${g.order.map(sid => {
+    const st = state.coach.students.find(x => x.id === sid);
+    const r = g.reports[sid];
+    return `
+    <div class="card reportbox">
+      <div class="rephead">
+        <span class="serif" style="font-size:16px">${esc(st.name)}</span>
+        <span class="mono" style="font-size:10px;color:${r.sent ? "var(--green)" : "var(--muted)"}">${r.sent ? "SENT \u2713" : esc(state.date)}</span>
+      </div>
+      <textarea class="gReport" data-sid="${sid}" style="min-height:170px;border:none;background:transparent">${esc(r.report)}</textarea>
+      <label class="f">HOMEWORK FOR ${esc(st.name.toUpperCase())}</label>
+      <input class="gRepHw" data-sid="${sid}" value="${esc(r.homework)}">
+      <div class="row">
+        <button class="b" data-gsend="${sid}">${r.sent ? "Send again" : "Send to parents (PDF)"}</button>
+        <button class="b ink" data-gpdf="${sid}">Download PDF</button>
+      </div>
+    </div>`;
+  }).join("")}`;
+}
+
+function clinicDraftHtml() {
+  const cd = state.cdraft;
+  const names = cd.attendees.map(id => (state.coach.students.find(x => x.id === id) || {}).name).join(", ");
+  return `
+  <div class="card reportbox">
+    <div class="rephead">
+      <span class="serif" style="font-size:17px">Clinic report - goes to every family</span>
+      <span class="mono" style="font-size:10px;color:var(--muted)">${esc(state.date)} \u00b7 ${cd.attendees.length} FAMILIES</span>
+    </div>
+    <textarea id="cReport" style="min-height:200px;border:none;background:transparent">${esc(cd.report)}</textarea>
+  </div>
+  ${cd.notes && cd.notes.toLowerCase() !== "none" ? `<div class="warnbox"><span class="mono" style="font-size:10px;color:var(--red)">REVIEW BEFORE SENDING</span><div class="prewrap">${esc(cd.notes)}</div></div>` : ""}
+  <div class="card">
+    <label class="f">PRACTICE SUGGESTION (same for everyone, optional)</label>
+    <input id="cHw" value="${esc(cd.homework)}">
+    <div class="hint">Sending to: ${esc(names)}</div>
+    <div class="row">
+      <button class="b" id="cSendAll">Send to all ${cd.attendees.length} families (PDFs attached)</button>
+      <button class="b ink" id="cPdf">Download one PDF</button>
+    </div>
+    <div class="ok" id="cDone" style="display:none"></div>
+  </div>`;
+}
+
+/* -------------------------------------------------------- prompts */
+function groupNotesPrompt({ students, coach, date, transcript }) {
+  return `A youth sports coach just described a GROUP lesson in one voice memo. Your job is to SORT what was said - not to write reports yet.
+
+ATTENDEES (the only children who were there):
+${students.map(st => `- id: ${st.id} / first name: ${st.name}`).join("\n")}
+Coach: ${coach.name}. Date: ${date}.
+
+TASK - sort the transcript into:
+1. COMMON: what the whole group worked on (2-4 sentences, plain language, NO individual names).
+2. HOMEWORK: homework given to the group, one sentence, or leave blank.
+3. For EACH attendee: ONLY what the coach said about THAT specific child, faithfully. Do not paraphrase praise into existence. If a child was not mentioned at all, write exactly: NOT MENTIONED
+4. NOTES: flag anything odd - a name in the transcript that is not on the attendee list, something you could not confidently attribute to one child, safety concerns; or the single word None.
+
+CRITICAL RULES:
+- Never place one child's information in another child's section. If attribution is unclear, put it in NOTES instead - the coach will sort it out.
+- Use ONLY the transcript. Never invent.
+
+Respond in EXACTLY this format, using every attendee id, in this order, nothing else:
+===COMMON===
+...
+===HOMEWORK===
+...
+${students.map(st => `===STUDENT:${st.id}===\n...`).join("\n")}
+===NOTES===
+...
+
+TRANSCRIPT:
+${transcript}`;
+}
+
+function groupReportPrompt({ student, coach, date, common, note, homework }) {
+  return `Write a warm, professional GROUP-lesson progress report for ONE child's parents, from the coach's confirmed notes below. Other children attended, but this report is only about ${student.name}.
+
+CONTEXT:
+- Child's first name: ${student.name}
+- Sport: ${student.sport}
+- Coach: ${coach.name}
+- Date: ${date}
+
+CONFIRMED MATERIAL (use ONLY this - nothing else exists):
+[What the whole group worked on]
+${common}
+[What the coach noted about ${student.name} specifically]
+${note.trim() || "(nothing specific - the coach had no individual note for ${''}this child today)"}
+[Group homework]
+${homework || "(none given)"}
+
+RULES:
+1. Use ONLY the material above. Never invent drills, praise, or events.
+2. NEVER name any other child. If the coach's note mentions another child's name, refer to them generically ("a partner", "a teammate").
+3. Warm first-person coach voice. Parents are the audience. Under 150 words.
+4. If there is no individual note, be honest and graceful: describe the group work, and say you'll have more individual detail next time - do NOT fabricate individual observations.
+
+REPORT SECTIONS (markdown, bold labels):
+**What the group worked on:** ...
+**What I saw from ${student.name}:** ... (omit this section entirely if there is no individual note)
+**Notable moment:** ... (ONLY if the individual note contains one; otherwise omit)
+**Homework before next time:** ... (omit if none)
+
+Respond in EXACTLY this format, nothing else:
+===REPORT===
+<report markdown>
+===HOMEWORK===
+<homework for this child in one sentence, or blank>`;
+}
+
+function clinicPrompt({ coach, date, count, transcript }) {
+  return `A youth sports coach ran a CLINIC (a larger session) and described it in one voice memo. Write ONE shared report that goes to EVERY family - it must read naturally for any child who attended.
+
+CONTEXT: Coach ${coach.name}, ${date}, ${count} families will receive this.
+
+RULES:
+1. Use ONLY the transcript. Never invent.
+2. Do NOT name, single out, or evaluate any individual child. If the transcript mentions individuals, fold it into general terms ("several players", "the group") and flag the names in NOTES.
+3. Warm first-person coach voice, plural ("we", "the group"). Under 150 words.
+
+REPORT SECTIONS (markdown, bold labels):
+**What we did today:** ...
+**What stood out:** ... (about the group as a whole; omit if nothing genuine)
+**To practice at home:** ... (omit if none given)
+
+Respond in EXACTLY this format, nothing else:
+===REPORT===
+<report markdown>
+===HOMEWORK===
+<the at-home practice in one sentence, or blank>
+===NOTES===
+<individual names you had to generalize, uncertainties; or None>
+
+TRANSCRIPT:
+${transcript}`;
 }
 
 /* -------------------------------------------------------- my record */
@@ -719,23 +947,47 @@ function bind() {
 }
 
 function bindLesson() {
-  const studentSel = $("student");
+  $("lessonType").onchange = () => {
+    state.lessonType = $("lessonType").value;
+    state.draft = null; state.gdraft = null; state.cdraft = null;
+    render();
+  };
+  $("date").onchange = () => { state.date = $("date").value; };
   $("transcript").oninput = () => { state.finalText = $("transcript").value; };
-  studentSel.onchange = () => {
-    const s = state.coach.students.find(x => x.id === studentSel.value);
-    $("lastHw").value = s ? lastHomework(state.coach.id, s.id) : "";
+
+  const studentSel = $("student");
+  if (studentSel) studentSel.onchange = () => {
+    const st = state.coach.students.find(x => x.id === studentSel.value);
+    $("lastHw").value = st ? lastHomework(state.coach.id, st.id) : "";
   };
 
+  const groupSel = $("groupSel");
+  if (groupSel) groupSel.onchange = () => {
+    state.groupSel = groupSel.value;
+    const g = (state.coach.groups || []).find(x => x.id === groupSel.value);
+    state.att = {};
+    if (g) g.studentIds.forEach(id => { state.att[id] = true; });
+    render();
+  };
+
+  const attAll = $("attAll");
+  if (attAll) {
+    attAll.onchange = () => {
+      state.coach.students.forEach(st => { state.att[st.id] = attAll.checked; });
+      render();
+    };
+    document.querySelectorAll(".attBox").forEach(box => box.onchange = () => {
+      state.att[box.dataset.sid] = box.checked;
+      const all = state.coach.students.every(st => state.att[st.id]);
+      $("attAll").checked = all;
+    });
+  }
+
   const recBtn = $("recBtn");
-  // Browser speech engines stop themselves after ~60s or a long pause.
-  // We restart automatically until the coach taps stop, so a pause to
-  // think never looks like the app quitting on them.
   const startListening = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const rec = new SR();
     rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
-    // Snapshot what's already there; each event rebuilds from the FULL
-    // results list (Android re-reports the whole session every event).
     const base = $("transcript").value ? $("transcript").value.trim() + " " : "";
     rec.onresult = (ev) => {
       let fin = "", interim = "";
@@ -749,12 +1001,12 @@ function bindLesson() {
     };
     rec.onend = () => {
       state.finalText = $("transcript").value;
-      if (state.recLive && !state.userStopped) { try { startListening(); return; } catch (e) { /* fall through */ } }
+      if (state.recLive && !state.userStopped) { try { startListening(); return; } catch (e) { } }
       state.recLive = false;
       recBtn.classList.remove("live"); recBtn.textContent = "\ud83c\udf99 Tap to speak";
     };
     rec.onerror = (ev) => {
-      if (ev.error === "no-speech" || ev.error === "aborted") return; // engine will fire onend; we restart
+      if (ev.error === "no-speech" || ev.error === "aborted") return;
       state.userStopped = true;
       $("genErr").textContent = ev.error === "not-allowed"
         ? "Microphone permission denied - allow it in your browser settings, or type instead."
@@ -772,68 +1024,231 @@ function bindLesson() {
   };
 
   $("genBtn").onclick = async () => {
-    const s = state.coach.students.find(x => x.id === studentSel.value);
     const transcript = $("transcript").value.trim();
     $("genErr").textContent = "";
-    if (!s) { $("genErr").textContent = "Choose a student first."; return; }
     if (!transcript) { $("genErr").textContent = "Speak or type the voice memo first."; return; }
-    if (state.recLive) state.rec.stop();
-    $("genBtn").disabled = true; $("genBtn").textContent = "Writing the report...";
+    if (state.recLive) { state.userStopped = true; state.rec.stop(); }
+    state.date = $("date").value;
+
+    if (state.lessonType === "private") {
+      const st = state.coach.students.find(x => x.id === (studentSel ? studentSel.value : ""));
+      if (!st) { $("genErr").textContent = "Choose a student first."; return; }
+      $("genBtn").disabled = true; $("genBtn").textContent = "Writing the report...";
+      try {
+        const raw = await callClaude(reportPrompt({
+          student: st, coach: state.coach, date: state.date,
+          lessonType: "private", lastHw: $("lastHw").value.trim(), transcript,
+        }));
+        const f = parseFields(raw, ["REPORT", "HOMEWORK", "NOTES"]);
+        state.draft = { student: st, date: state.date, lessonType: "private", transcript,
+          report: f && f.REPORT ? f.REPORT : raw.trim(),
+          homework: f ? f.HOMEWORK || "" : "",
+          notes: f ? f.NOTES || "" : "Model didn't return the expected format - review the whole report carefully.",
+          savedId: "" };
+        notifyAdmin("report_generated", { student: st.name, date: state.date });
+      } catch (err) {
+        $("genErr").textContent = "Generation failed: " + err.message;
+        $("genBtn").disabled = false; $("genBtn").textContent = "Generate report";
+        return;
+      }
+      render();
+      return;
+    }
+
+    const who = attendees();
+    if (who.length === 0) { $("genErr").textContent = "Tick who was there first."; return; }
+
+    if (state.lessonType === "group") {
+      $("genBtn").disabled = true; $("genBtn").textContent = "Sorting the group notes...";
+      try {
+        const raw = await callClaude(groupNotesPrompt({ students: who, coach: state.coach, date: state.date, transcript }));
+        const keys = ["COMMON", "HOMEWORK"].concat(who.map(st => "STUDENT:" + st.id)).concat(["NOTES"]);
+        const f = parseFields(raw, keys);
+        if (!f || !("COMMON" in f)) throw new Error("model didn't return the expected format - try again.");
+        const notes = {};
+        who.forEach(st => {
+          const t = (f["STUDENT:" + st.id] || "").trim();
+          notes[st.id] = /^NOT MENTIONED$/i.test(t) ? "" : t;
+        });
+        state.gdraft = { stage: "notes", transcript, order: who.map(st => st.id),
+          common: (f.COMMON || "").trim(), homework: (f.HOMEWORK || "").trim(),
+          notes, flags: (f.NOTES || "").trim(), reports: {} };
+        notifyAdmin("group_notes_generated", { date: state.date, count: who.length });
+      } catch (err) {
+        $("genErr").textContent = "Couldn't sort the notes: " + err.message;
+        $("genBtn").disabled = false; $("genBtn").textContent = "Extract group notes";
+        return;
+      }
+      render();
+      return;
+    }
+
+    // clinic
+    $("genBtn").disabled = true; $("genBtn").textContent = "Writing the clinic report...";
     try {
-      const raw = await callClaude(reportPrompt({
-        student: s, coach: state.coach, date: $("date").value,
-        lessonType: $("lessonType").value, lastHw: $("lastHw").value.trim(), transcript,
-      }));
+      const raw = await callClaude(clinicPrompt({ coach: state.coach, date: state.date, count: who.length, transcript }));
       const f = parseFields(raw, ["REPORT", "HOMEWORK", "NOTES"]);
-      state.draft = {
-        student: s, date: $("date").value, lessonType: $("lessonType").value,
-        transcript,
+      state.cdraft = { transcript, attendees: who.map(st => st.id),
         report: f && f.REPORT ? f.REPORT : raw.trim(),
         homework: f ? f.HOMEWORK || "" : "",
-        notes: f ? f.NOTES || "" : "Model didn't return the expected format — review the whole report carefully.",
-        savedId: "",
-      };
-      notifyAdmin("report_generated", { student: s.name, date: $("date").value });
+        notes: f ? f.NOTES || "" : "Model didn't return the expected format - review carefully." };
+      notifyAdmin("clinic_report_generated", { date: state.date, count: who.length });
     } catch (err) {
       $("genErr").textContent = "Generation failed: " + err.message;
-      $("genBtn").disabled = false; $("genBtn").textContent = "Generate report";
+      $("genBtn").disabled = false; $("genBtn").textContent = "Generate clinic report";
       return;
     }
     render();
-    window.scrollTo({ top: document.body.scrollHeight / 3, behavior: "smooth" });
   };
 
-  if (state.draft) {
-    const d = state.draft;
-    $("reportText").oninput = () => { d.report = $("reportText").value; };
-    $("hwOut").oninput = () => { d.homework = $("hwOut").value; };
-    $("saveBtn").onclick = () => {
-      const data = store.load();
-      const entry = {
-        id: "e" + Date.now(), coachId: state.coach.id, studentId: d.student.id,
-        date: d.date, lessonType: d.lessonType, transcript: d.transcript,
-        report: d.report, homework: d.homework.trim(), createdAt: new Date().toISOString(),
-      };
-      data.entries.push(entry); store.save(data);
-      d.savedId = entry.id;
-      $("doneMsg").style.display = "block";
-      $("doneMsg").textContent = "Saved. Entry No. " + entryNoOf(d.student.id, entry.id) + " in " + d.student.name + "'s record.";
-      notifyAdmin("report_saved", { student: d.student.name, date: d.date });
+  bindPrivateDraft();
+  bindGroupDraft();
+  bindClinicDraft();
+}
+
+function saveEntryFor(student, fields) {
+  const data = store.load();
+  const entry = Object.assign({
+    id: "e" + Date.now() + Math.random().toString(36).slice(2, 6),
+    coachId: state.coach.id, studentId: student.id,
+    createdAt: new Date().toISOString(),
+  }, fields);
+  data.entries.push(entry); store.save(data);
+  notifyAdmin("report_saved", { student: student.name, date: fields.date });
+  return entry.id;
+}
+
+function bindPrivateDraft() {
+  const d = state.draft;
+  if (!d || state.lessonType !== "private") return;
+  $("reportText").oninput = () => { d.report = $("reportText").value; };
+  $("hwOut").oninput = () => { d.homework = $("hwOut").value; };
+  const saveDraft = () => {
+    if (d.savedId) return d.savedId;
+    d.savedId = saveEntryFor(d.student, { date: d.date, lessonType: "private",
+      transcript: d.transcript, report: d.report, homework: d.homework.trim() });
+    $("doneMsg").style.display = "block";
+    $("doneMsg").textContent = "Saved. Entry No. " + entryNoOf(d.student.id, d.savedId) + " in " + d.student.name + "'s record.";
+    $("saveBtn").textContent = "Saved to record";
+    return d.savedId;
+  };
+  $("saveBtn").onclick = saveDraft;
+  $("sendBtn").onclick = () => {
+    const id = saveDraft();
+    sendReportToParents({ student: d.student, date: d.date, lessonType: "private",
+      report: d.report, entryNo: entryNoOf(d.student.id, id) });
+  };
+  $("pdfBtn").onclick = () => {
+    try {
+      const r = makeLessonPdf({ student: d.student, coach: state.coach, date: d.date,
+        lessonType: "private", reportMd: d.report,
+        entryNo: d.savedId ? entryNoOf(d.student.id, d.savedId) : entryNoOf(d.student.id, "future") });
+      downloadPdfBytes(r.pdf, r.filename);
+      notifyAdmin("pdf_downloaded", { student: d.student.name, date: d.date });
+    } catch (e) { $("doneMsg").style.display = "block"; $("doneMsg").textContent = "PDF failed - copy the text instead."; }
+  };
+  $("emailBtn").onclick = () => emailEntry({ report: d.report, date: d.date }, d.student);
+}
+
+function bindGroupDraft() {
+  const g = state.gdraft;
+  if (!g || state.lessonType !== "group") return;
+  const backBtn = $("gBackBtn");
+  if (backBtn) backBtn.onclick = () => {
+    if (g.stage === "reports") { g.stage = "notes"; } else { state.gdraft = null; }
+    render();
+  };
+  if (g.stage === "notes") {
+    $("gCommon").oninput = () => { g.common = $("gCommon").value; };
+    $("gHw").oninput = () => { g.homework = $("gHw").value; };
+    document.querySelectorAll(".gNote").forEach(t => t.oninput = () => { g.notes[t.dataset.sid] = t.value; });
+    $("gGenBtn").onclick = async () => {
+      $("gErr").textContent = "";
+      $("gGenBtn").disabled = true;
+      g.reports = {};
+      let i = 0;
+      for (const sid of g.order) {
+        i++;
+        const st = state.coach.students.find(x => x.id === sid);
+        $("gGenBtn").textContent = "Writing " + i + " of " + g.order.length + " (" + st.name + ")...";
+        try {
+          const raw = await callClaude(groupReportPrompt({ student: st, coach: state.coach,
+            date: state.date, common: g.common, note: g.notes[sid] || "", homework: g.homework }));
+          const f = parseFields(raw, ["REPORT", "HOMEWORK"]);
+          g.reports[sid] = { report: f && f.REPORT ? f.REPORT : raw.trim(),
+            homework: (f && f.HOMEWORK ? f.HOMEWORK : g.homework || "").trim(), sent: false, savedId: "" };
+        } catch (err) {
+          $("gErr").textContent = "Failed on " + st.name + ": " + err.message + " - fix and try again.";
+          $("gGenBtn").disabled = false;
+          $("gGenBtn").textContent = "Confirm notes \u2192 write " + g.order.length + " report(s)";
+          return;
+        }
+      }
+      g.stage = "reports";
+      notifyAdmin("group_reports_generated", { date: state.date, count: g.order.length });
+      render();
     };
-    $("pdfBtn").onclick = () => {
-      try {
-        const r = makeLessonPdf({ student: d.student, coach: state.coach, date: d.date,
-          lessonType: d.lessonType, reportMd: d.report,
-          entryNo: d.savedId ? entryNoOf(d.student.id, d.savedId) : entryNoOf(d.student.id, "future") });
-        downloadPdfBytes(r.pdf, r.filename);
-        notifyAdmin("pdf_downloaded", { student: d.student.name, date: d.date });
-      } catch { $("doneMsg").style.display = "block"; $("doneMsg").textContent = "PDF failed — copy the text from the box instead."; }
-    };
-    $("sendBtn").onclick = () => sendReportToParents({ student: d.student, date: d.date,
-      lessonType: d.lessonType, report: d.report,
-      entryNo: d.savedId ? entryNoOf(d.student.id, d.savedId) : entryNoOf(d.student.id, "future") });
-    $("emailBtn").onclick = () => emailEntry({ report: d.report, date: d.date }, d.student);
+    return;
   }
+  // stage === "reports"
+  document.querySelectorAll(".gReport").forEach(t => t.oninput = () => { g.reports[t.dataset.sid].report = t.value; });
+  document.querySelectorAll(".gRepHw").forEach(t => t.oninput = () => { g.reports[t.dataset.sid].homework = t.value; });
+  const sendOne = (sid) => {
+    const st = state.coach.students.find(x => x.id === sid);
+    const r = g.reports[sid];
+    if (!r.savedId) r.savedId = saveEntryFor(st, { date: state.date, lessonType: "group",
+      transcript: g.transcript, report: r.report, homework: r.homework.trim() });
+    sendReportToParents({ student: st, date: state.date, lessonType: "group",
+      report: r.report, entryNo: entryNoOf(st.id, r.savedId) });
+    r.sent = true;
+  };
+  document.querySelectorAll("[data-gsend]").forEach(b => b.onclick = () => { sendOne(b.dataset.gsend); render(); });
+  document.querySelectorAll("[data-gpdf]").forEach(b => b.onclick = () => {
+    const st = state.coach.students.find(x => x.id === b.dataset.gpdf);
+    const r = g.reports[b.dataset.gpdf];
+    const no = r.savedId ? entryNoOf(st.id, r.savedId) : entryNoOf(st.id, "future");
+    const out = makeLessonPdf({ student: st, coach: state.coach, date: state.date,
+      lessonType: "group", reportMd: r.report, entryNo: no });
+    downloadPdfBytes(out.pdf, out.filename);
+    notifyAdmin("pdf_downloaded", { student: st.name, date: state.date });
+  });
+  const sendAll = $("gSendAll");
+  if (sendAll) sendAll.onclick = () => {
+    g.order.forEach(sid => sendOne(sid));
+    render();
+    const done = $("gDone");
+    if (done) { done.style.display = "block"; done.textContent = "All " + g.order.length + " sent and saved to each child's record."; }
+  };
+}
+
+function bindClinicDraft() {
+  const cd = state.cdraft;
+  if (!cd || state.lessonType !== "clinic") return;
+  $("cReport").oninput = () => { cd.report = $("cReport").value; };
+  $("cHw").oninput = () => { cd.homework = $("cHw").value; };
+  const fullReport = () => cd.report + (cd.homework.trim() && cd.report.indexOf("practice at home") < 0
+    ? "\n\n**To practice at home:** " + cd.homework.trim() : "");
+  $("cSendAll").onclick = () => {
+    let n = 0;
+    cd.attendees.forEach(sid => {
+      const st = state.coach.students.find(x => x.id === sid);
+      if (!st) return;
+      const id = saveEntryFor(st, { date: state.date, lessonType: "clinic",
+        transcript: cd.transcript, report: fullReport(), homework: "" });
+      sendReportToParents({ student: st, date: state.date, lessonType: "clinic",
+        report: fullReport(), entryNo: entryNoOf(st.id, id) });
+      n++;
+    });
+    const done = $("cDone");
+    done.style.display = "block";
+    done.textContent = "Sent to " + n + " families and saved to each child's record.";
+  };
+  $("cPdf").onclick = () => {
+    const st = state.coach.students.find(x => x.id === cd.attendees[0]);
+    const out = makeLessonPdf({ student: st, coach: state.coach, date: state.date,
+      lessonType: "clinic", reportMd: fullReport(), entryNo: entryNoOf(st.id, "future") });
+    downloadPdfBytes(out.pdf, out.filename);
+  };
 }
 
 function bindRecord() {
