@@ -1,0 +1,65 @@
+[
+  {
+    "id": "dave",
+    "name": "Dave",
+    "passcode": "forehand42",
+    "style": "upbeat, encouraging",
+    "students": [
+      { "id": "ava", "name": "Ava", "sport": "tennis", "parentEmails": ["ava.parent@example.com"] },
+      { "id": "leo", "name": "Leo", "sport": "tennis", "parentEmails": ["leo.mom@example.com", "leo.dad@example.com"] }
+    ],
+    "groups": [
+      { "id": "tue5", "name": "Tuesday 5pm Group", "studentIds": ["ava", "leo"] }
+    ]
+  },
+  {
+    "id": "Roberto",
+    "name": "Roberto",
+    "passcode": "Santiago",
+    "style": "upbeat, encouraging",
+    "students": [
+      { "id": "rajasvi", "name": "Rajasvi", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
+      { "id": "mira", "name": "Mira", "sport": "tennis", "parentEmails": ["mira.mom@example.com"] },
+      { "id": "emma", "name": "Emma", "sport": "tennis", "parentEmails": ["emma.mom@example.com", "emma.dad@example.com"] }
+    ],
+    "groups": [
+      { "id": "tue5", "name": "Tuesday 5pm Group", "studentIds": ["rajasvi", "emma", "mira"] }
+    ]
+  },
+  {
+    "id": "swapna",
+    "name": "Swapna",
+    "passcode": "rfed8888",
+    "style": "upbeat, encouraging",
+    "students": [
+      { "id": "rajasvi", "name": "Rajasvi", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
+      { "id": "mira", "name": "Mira", "sport": "tennis", "parentEmails": ["mira.mom@example.com"] },
+      { "id": "emma", "name": "Emma", "sport": "tennis", "parentEmails": ["emma.mom@example.com", "emma.dad@example.com"] }
+    ],
+    "groups": [
+      { "id": "tue5", "name": "Tuesday 5pm Group", "studentIds": ["rajasvi", "emma", "mira"] }
+    ]
+  },
+  {
+    "id": "alessandro",
+    "name": "Alessandro",
+    "passcode": "forehand42",
+    "style": "upbeat, encouraging",
+    "students": [
+      { "id": "rajasvi", "name": "Rajasvi", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
+      { "id": "leo", "name": "Leo", "sport": "tennis", "parentEmails": ["leo.mom@example.com", "leo.dad@example.com"] }
+    ],
+    "groups": [
+      { "id": "tue5", "name": "Tuesday 5pm Group", "studentIds": ["rajasvi", "leo"] }
+    ]
+  },  
+  {
+    "id": "priya",
+    "name": "Priya",
+    "passcode": "putter88",
+    "style": "calm, detail-oriented",
+    "students": [
+      { "id": "maya", "name": "Maya", "sport": "golf", "parentEmails": ["maya.parent@example.com"] }
+    ]
+  }
+]
