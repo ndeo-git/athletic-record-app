@@ -984,10 +984,16 @@ function bindLesson() {
   }
 
   const recBtn = $("recBtn");
+  // Android's speech engine duplicates finalized segments in continuous
+  // mode (a known Chrome-on-Android quirk). Cure: on Android, run short
+  // non-continuous sessions and let our auto-restart chain them - one
+  // clean final result per session, no duplicates. Desktop/iOS keep
+  // continuous mode.
+  const IS_ANDROID = /Android/i.test(navigator.userAgent);
   const startListening = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const rec = new SR();
-    rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
+    rec.continuous = !IS_ANDROID; rec.interimResults = true; rec.lang = "en-US";
     const base = $("transcript").value ? $("transcript").value.trim() + " " : "";
     rec.onresult = (ev) => {
       let fin = "", interim = "";
@@ -996,6 +1002,9 @@ function bindLesson() {
         if (r.isFinal) fin += r[0].transcript + " ";
         else interim += r[0].transcript;
       }
+      // Belt and braces: if this final segment already sits at the end of
+      // the transcript (a session-boundary re-delivery), drop it.
+      if (fin && base.trim().toLowerCase().endsWith(fin.trim().toLowerCase())) fin = "";
       state.finalText = base + fin + interim;
       $("transcript").value = state.finalText;
     };
