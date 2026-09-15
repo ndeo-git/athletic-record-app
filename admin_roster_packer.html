@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Athletic Record — Admin Roster Packer</title>
+<style>
+  :root { --paper:#F7F5EF; --card:#fff; --rule:#DAD5C6; --ink:#22331F; --green:#2F6B4F; --red:#B23A2A; --muted:#6B7263; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-family:Georgia,serif; border-bottom:3px double var(--ink); padding-bottom:10px; }
+  .card { background:var(--card); border:1px solid var(--rule); padding:14px; margin-bottom:14px; }
+  label { display:block; font-family:"Courier New",monospace; letter-spacing:.08em; font-size:10px; color:var(--muted); margin:10px 0 3px; }
+  input, textarea { width:100%; padding:9px; font-size:14px; border:1px solid var(--rule); border-radius:2px; box-sizing:border-box; }
+  textarea { min-height:260px; font-family:"Courier New",monospace; font-size:12px; line-height:1.5; }
+  button { padding:11px 16px; font-size:14px; border:none; border-radius:2px; color:#fff; background:var(--green); cursor:pointer; margin-top:10px; }
+  .err { color:var(--red); font-size:14px; white-space:pre-wrap; }
+  .hint { font-size:12px; color:var(--muted); }
+  .out { background:#EDF3EF; border:1px solid var(--green); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Admin Roster Packer</h1>
+  <p class="hint">Runs entirely in your browser — nothing is sent anywhere. Fill in the roster,
+  press Seal, and paste the output into <code>SEALED_COACHES</code> in the coach app.
+  Keep THIS file and your plaintext roster private; only the sealed output is safe to publish.</p>
+
+  <div class="card">
+    <label>SHARED API KEY (sealed into every coach's blob)</label>
+    <input id="apiKey" type="password" placeholder="sk-ant-...">
+    <label>ADMIN WEBHOOK URL (optional — your Apps Script endpoint for activity notifications)</label>
+    <input id="webhook" placeholder="https://script.google.com/macros/s/XXXX/exec">
+    <label>ROSTER (JSON — edit the template; every coach needs a passcode of 8+ characters; "title" is how they sign - "Coach", "Ms.", "Mr." or empty for a bare name; "sport" can be any activity: tennis, piano, math...)</label>
+    <textarea id="roster">[
+  {
+    "id": "dave",
+    "name": "Dave",
+    "passcode": "forehand42",
+    "title": "Coach",
+    "speechLang": "en-US",
+    "reportLang": "English",
+    "style": "upbeat, encouraging",
+    "students": [
+      { "id": "ava", "name": "Ava", "sport": "tennis", "parentEmails": ["ava.parent@example.com"] },
+      { "id": "leo", "name": "Leo", "sport": "tennis", "parentEmails": ["leo.mom@example.com", "leo.dad@example.com"] }
+    ],
+    "groups": [
+      { "id": "tue5", "name": "Tuesday 5pm Group", "studentIds": ["ava", "leo"] }
+    ]
+  },
+  {
+    "id": "priya",
+    "name": "Priya",
+    "passcode": "putter88",
+    "title": "Coach",
+    "style": "calm, detail-oriented",
+    "students": [
+      { "id": "maya", "name": "Maya", "sport": "golf", "parentEmails": ["maya.parent@example.com"] }
+    ]
+  }
+]</textarea>
+    <button id="seal">Seal roster</button>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card out" id="outCard" style="display:none">
+    <label>PASTE THIS INTO THE COACH APP AS THE VALUE OF SEALED_COACHES</label>
+    <textarea id="out" readonly></textarea>
+    <button id="copy">Copy</button>
+    <p class="hint">Give each coach their passcode privately (in person or a direct message —
+    not in the same channel as the app link). To change anything later — a new student,
+    an email fix, a passcode reset — re-run this packer and replace the block.</p>
+  </div>
+</div>
+
+<script>
+const te = new TextEncoder();
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+async function deriveKey(pass, salt) {
+  const km = await crypto.subtle.importKey("raw", te.encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 310000, hash: "SHA-256" },
+    km, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+}
+async function sealCoach(coach, shared) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(coach.passcode, salt);
+  // Name goes INSIDE the ciphertext - the published file reveals nothing
+  // about who the coaches are, only how many sealed scorebooks exist.
+  const payload = { name: coach.name, title: coach.title, style: coach.style || "",
+    speechLang: coach.speechLang || "en-US", reportLang: coach.reportLang || "English", students: coach.students || [],
+    groups: coach.groups || [], apiKey: shared.apiKey, adminWebhook: shared.adminWebhook };
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, te.encode(JSON.stringify(payload)));
+  return { id: coach.id, salt: b64(salt), iv: b64(iv), blob: b64(ct) };
+}
+
+document.getElementById("seal").onclick = async () => {
+  const err = document.getElementById("err");
+  err.textContent = "";
+  let roster;
+  try { roster = JSON.parse(document.getElementById("roster").value); }
+  catch (e) { err.textContent = "Roster isn't valid JSON: " + e.message; return; }
+  if (!Array.isArray(roster) || !roster.length) { err.textContent = "Roster must be a non-empty array of coaches."; return; }
+  const problems = [];
+  const ids = new Set();
+  roster.forEach((c, i) => {
+    if (!c.id || !c.name) problems.push("Coach #" + (i + 1) + ": needs id and name.");
+    if (ids.has(c.id)) problems.push("Duplicate coach id: " + c.id);
+    ids.add(c.id);
+    if (!c.passcode || c.passcode.length < 8) problems.push((c.name || "Coach #" + (i + 1)) + ": passcode must be 8+ characters (a short PIN can be brute-forced offline).");
+    (c.students || []).forEach(s => {
+      if (!s.id || !s.name || !s.sport) problems.push((c.name || "?") + ": each student needs id, name, sport.");
+      if (!s.parentEmails || !s.parentEmails.length) problems.push((c.name || "?") + " / " + (s.name || "?") + ": needs at least one parent email.");
+    });
+    const sids = new Set((c.students || []).map(s => s.id));
+    (c.groups || []).forEach(g => {
+      if (!g.id || !g.name || !Array.isArray(g.studentIds) || !g.studentIds.length)
+        problems.push((c.name || "?") + ": each group needs id, name, and a non-empty studentIds list.");
+      (g.studentIds || []).forEach(id => {
+        if (!sids.has(id)) problems.push((c.name || "?") + " / group " + (g.name || g.id) + ": studentId '" + id + "' is not one of this coach's students.");
+      });
+    });
+  });
+  if (problems.length) { err.textContent = problems.join("\n"); return; }
+  const shared = { apiKey: document.getElementById("apiKey").value.trim(),
+    adminWebhook: document.getElementById("webhook").value.trim() };
+  const sealed = [];
+  for (const c of roster) sealed.push(await sealCoach(c, shared));
+  document.getElementById("out").value = JSON.stringify(sealed, null, 2);
+  document.getElementById("outCard").style.display = "block";
+};
+document.getElementById("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText(document.getElementById("out").value); } catch {}
+};
+</script>
+</body>
+</html>
