@@ -3,6 +3,9 @@
     "id": "dave",
     "name": "Dave",
     "passcode": "forehand42",
+    "title": "Coach",
+    "speechLang": "en-US",
+    "reportLang": "English",
     "style": "upbeat, encouraging",
     "students": [
       { "id": "ava", "name": "Ava", "sport": "tennis", "parentEmails": ["ava.parent@example.com"] },
@@ -16,6 +19,9 @@
     "id": "Roberto",
     "name": "Roberto",
     "passcode": "santiago",
+    "title": "Coach",
+    "speechLang": "en-US",
+    "reportLang": "English",
     "style": "upbeat, encouraging",
     "students": [
       { "id": "rajasvi", "name": "Rajasvi", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
@@ -30,6 +36,9 @@
     "id": "swapna",
     "name": "Swapna",
     "passcode": "rfed8888",
+    "title": "Coach",
+    "speechLang": "en-US",
+    "reportLang": "English",
     "style": "upbeat, encouraging",
     "students": [
       { "id": "rajasvi", "name": "Rajasvi", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
@@ -44,6 +53,9 @@
     "id": "alessandro",
     "name": "Alessandro",
     "passcode": "jmac2026",
+    "title": "Coach",
+    "speechLang": "en-US",
+    "reportLang": "English",
     "style": "upbeat, encouraging",
     "students": [
       { "id": "rajasvi", "name": "Rajasvi", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
@@ -52,7 +64,23 @@
     "groups": [
       { "id": "tue5", "name": "Tuesday 5pm Group", "studentIds": ["rajasvi", "leo"] }
     ]
-  },  
+  },
+  {
+    "id": "sushrut",
+    "name": "Sushrut",
+    "passcode": "biscuit91",
+    "title": "Coach",
+    "speechLang": "en-US",
+    "reportLang": "English",
+    "style": "calm, detail-oriented",
+    "students": [
+      { "id": "boots", "name": "Boots", "sport": "cricket", "parentEmails": ["boots.mom@example.com"] },
+      { "id": "jayden", "name": "Jayden", "sport": "cricket", "parentEmails": ["jayden.mom@example.com", "jayden.dad@example.com"] }
+    ],
+    "groups": [
+      { "id": "sun5", "name": "Sunday Group", "studentIds": ["boots", "jayden"] }
+    ]
+  },
   {
     "id": "priya",
     "name": "Priya",
