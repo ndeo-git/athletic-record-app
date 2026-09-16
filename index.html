@@ -1091,18 +1091,66 @@ function bindLesson() {
     rec.onerror = (ev) => {
       if (ev.error === "no-speech" || ev.error === "aborted") return;
       state.userStopped = true;
-      $("genErr").textContent = ev.error === "not-allowed"
-        ? "Microphone permission denied - allow it in your browser settings, or type instead."
-        : "Voice capture hiccup (" + ev.error + ") - your text is safe, tap to resume or type.";
+      const langName = (SPEECH_LANGS.find(l => l[0] === state.speechLang) || ["", state.speechLang])[1];
+      if (ev.error === "service-not-allowed" || ev.error === "language-not-supported") {
+        $("genErr").textContent = "This phone's speech engine can't transcribe " + langName +
+          " (or dictation is off in system settings). Options: switch Spoken Language to one your phone supports" +
+          " - the report can still be written in " + state.reportLang + " - or type the memo." +
+          " On iPhone: Settings > General > Keyboard > Enable Dictation, and add a " + langName + " keyboard.";
+      } else if (ev.error === "not-allowed") {
+        $("genErr").textContent = "Microphone permission denied - allow it in your browser settings, or type instead.";
+      } else if (ev.error === "network") {
+        $("genErr").textContent = "Speech recognition needs a connection for " + langName + " - check your network, or type instead.";
+      } else {
+        $("genErr").textContent = "Voice capture hiccup (" + ev.error + ") - your text is safe, tap to resume or type.";
+      }
     };
     rec.start();
     state.rec = rec;
   };
-  if (recBtn) recBtn.onclick = () => {
-    if (state.recLive) { state.userStopped = true; state.rec.stop(); return; }
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm")) ? "audio/webm"
+      : (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/mp4")) ? "audio/mp4" : "";
+    const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const chunks = [];
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      recBtn.classList.remove("live");
+      recBtn.disabled = true; recBtn.textContent = "Transcribing...";
+      try {
+        const blob = new Blob(chunks, { type: mr.mimeType || mime || "audio/webm" });
+        const text = await transcribeCloud(blob);
+        const base = $("transcript").value ? $("transcript").value.trim() + " " : "";
+        state.finalText = (base + text.trim()).trim();
+        $("transcript").value = state.finalText;
+      } catch (err) {
+        $("genErr").textContent = "Transcription failed: " + err.message + " You can type the memo, or try again.";
+      }
+      recBtn.disabled = false; recBtn.textContent = "\ud83c\udf99 Tap to speak";
+      state.recLive = false; state.rec = null;
+    };
+    mr.start();
+    state.rec = mr;
+  };
+
+  if (recBtn) recBtn.onclick = async () => {
+    if (state.recLive) {
+      state.userStopped = true;
+      if (state.rec && state.rec.stop) state.rec.stop();
+      return;
+    }
+    $("genErr").textContent = "";
     state.userStopped = false; state.recLive = true;
-    recBtn.classList.add("live"); recBtn.textContent = "\u23f9 Listening - tap to stop";
-    try { startListening(); }
+    recBtn.classList.add("live"); recBtn.textContent = "\u23f9 Recording - tap to stop";
+    if (cloudSTT() && navigator.mediaDevices && window.MediaRecorder) {
+      try { await startRecording(); return; }
+      catch (e) {
+        // fall through to the browser engine below
+      }
+    }
+    try { recBtn.textContent = "\u23f9 Listening - tap to stop"; startListening(); }
     catch (e) { state.recLive = false; recBtn.classList.remove("live"); recBtn.textContent = "\ud83c\udf99 Tap to speak"; $("genErr").textContent = "Couldn't start the microphone - type instead."; }
   };
 
@@ -1190,6 +1238,32 @@ function bindLesson() {
   bindPrivateDraft();
   bindGroupDraft();
   bindClinicDraft();
+}
+
+// ---- Cloud transcription (Whisper via the admin's Apps Script) ----
+// Records real audio and sends it to the webhook, which holds the Whisper
+// key server-side. Identical behavior on every phone, every language.
+function cloudSTT() { return !!(state.coach && state.coach.adminWebhook); }
+
+async function transcribeCloud(blob) {
+  const hook = state.coach.adminWebhook;
+  const b64 = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1]);
+    r.onerror = () => rej(new Error("couldn't read the recording"));
+    r.readAsDataURL(blob);
+  });
+  const res = await fetch(hook, { method: "POST", redirect: "follow",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ action: "transcribe", audioBase64: b64,
+      mime: blob.type || "audio/webm", lang: (state.speechLang || "en-US").split("-")[0],
+      at: new Date().toISOString(), coach: state.coach.name }) });
+  const t = await res.text();
+  let j;
+  try { j = JSON.parse(t); }
+  catch (e) { throw new Error("the webhook returned an unexpected response - is the latest Apps Script version deployed?"); }
+  if (j.error) throw new Error(j.error);
+  return j.text || "";
 }
 
 function saveEntryFor(student, fields) {
