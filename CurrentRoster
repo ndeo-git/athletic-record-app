@@ -82,6 +82,20 @@
     ]
   },
   {
+    "id": "Parker",
+    "name": "Parker",
+    "passcode": "topgun26",
+    "style": "calm, detail-oriented",
+    "students": [
+      { "id": "himani", "name": "Himani", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
+      { "id": "helen", "name": "Helen", "sport": "tennis", "parentEmails": ["Helen.mom@example.com"] },
+      { "id": "morgan", "name": "Morgan", "sport": "tennis", "parentEmails": ["morgan.dad@example.com"] }
+    ],
+    "groups": [
+      { "id": "group1", "name": "Group1", "studentIds": ["himani", "helen","morgan"] }
+    ]
+  },
+  {
     "id": "priya",
     "name": "Priya",
     "passcode": "putter88",
