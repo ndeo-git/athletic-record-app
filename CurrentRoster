@@ -87,6 +87,8 @@
     "passcode": "topgun26",
     "style": "calm, detail-oriented",
     "students": [
+      { "id": "evan", "name": "Evan", "sport": "tennis", "parentEmails": ["Evan.mom@example.com"] },
+      { "id": "james", "name": "James", "sport": "tennis", "parentEmails": ["james.mom@example.com"] },
       { "id": "himani", "name": "Himani", "sport": "tennis", "parentEmails": ["swapnadeo@gmail.com"] },
       { "id": "helen", "name": "Helen", "sport": "tennis", "parentEmails": ["Helen.mom@example.com"] },
       { "id": "morgan", "name": "Morgan", "sport": "tennis", "parentEmails": ["morgan.dad@example.com"] }
